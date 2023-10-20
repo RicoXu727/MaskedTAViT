@@ -1,4 +1,10 @@
 # MaskedTAViT
 
-hhh
-test new branch
+```bash
+|-- main.py
+|-- masktavit
+|   |-- models
+|   |   | -- vqvae.py
+|   |   | -- 
+
+```
