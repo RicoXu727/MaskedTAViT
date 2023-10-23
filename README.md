@@ -66,6 +66,7 @@ sh masktavit/data/bair/bair_dataset.sh datasets/bair
 ```
 Longcong Xu lx2305@columbia.edu
 Shiwen Tang st3510@columbia.edu
+Ruochen Zhang rz2597@columbia.edu
 ```
 
 ## References
