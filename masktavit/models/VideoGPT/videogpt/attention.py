@@ -217,7 +217,7 @@ class FullAttention(nn.Module):
         for i in range(0,seq_len):
             for j in range(i,seq_len):
                 self.distance[i][j]= sum(abs(idxs[i][k]-idxs[j][k]) for k in range(0,len(shape))) #l1 distance
-                self.distance[j][i]= distance[i][j]
+                self.distance[j][i]= self.distance[i][j]
                 
         
     def forward(self, q, k, v, decode_step, decode_idx):
