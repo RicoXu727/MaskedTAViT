@@ -26,9 +26,11 @@ def get_seq(dname):
 
     for f in filenames:
         k=0
-        for serialized_example in tf.python_io.tf_record_iterator(f):
+        # tensorflow.python_io has been deprecated in TensorFlow 1.x.
+        dataset = tf.data.TFRecordDataset(f)
+        for serialized_example in dataset:
             example = tf.train.Example()
-            example.ParseFromString(serialized_example)
+            example.ParseFromString(serialized_example.numpy())
             image_seq, action_seq = [], []
             for i in range(30):
                 image_name = str(i) + '/image_aux1/encoded'
