@@ -3,3 +3,4 @@ tempData/
 __pycache__/
 lightning_logs/
 datasets/
+vqvae_checkpoints/

@@ -1,11 +1,11 @@
 '''
 Code referenced from https://github.com/wilson1yan/VideoGPT
+Modified to fit for PyTorch Lightning 2.0
 '''
 import os
 import itertools
 import numpy as np
 from tqdm import tqdm
-import argparse
 
 import torch
 import torch.nn as nn
@@ -17,6 +17,7 @@ from .resnet import resnet34
 from .attention import AttentionStack, LayerNorm, AddBroadcastPosEmbed
 from .utils import shift_dim
 
+from .vqvae import VQVAE
 
 class VideoGPT(pl.LightningModule):
     def __init__(
@@ -28,23 +29,19 @@ class VideoGPT(pl.LightningModule):
         layers: int = 8,
         dropout: float = 0.2,
         attn_type: str = 'full',
-        attn_dropout: float = 0.3
+        attn_dropout: float = 0.3,
+        vqvae_ckpt: str = "/home/shiwen/MaskedTAViT/vqvae_checkpoints/latest_vqvae_model.ckpt"
     ):
         super().__init__()
         self.resolution = resolution
         self.n_cond_frames = n_cond_frames
 
         # Load VQ-VAE and set all parameters to no grad
-        from .vqvae import VQVAE
-        from .download import load_vqvae
-        if not os.path.exists(args.vqvae):
-            self.vqvae = load_vqvae(args.vqvae)
-        else:
-            self.vqvae =  VQVAE.load_from_checkpoint(args.vqvae)
-        for p in self.vqvae.parameters():
-            p.requires_grad = False
+        self.vqvae = VQVAE.load_from_checkpoint(vqvae_ckpt)
+        for para in self.vqvae.parameters():
+            para.requires_grad = False
         self.vqvae.codebook._need_init = False
-        self.vqvae.eval()
+        self.vqvae.eval()       
 
         # ResNet34 for frame conditioning
         self.use_frame_cond = n_cond_frames > 0
