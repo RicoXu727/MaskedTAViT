@@ -1,2 +1,5 @@
 VideoGPT/
 tempData/
+__pycache__/
+lightning_logs/
+datasets/

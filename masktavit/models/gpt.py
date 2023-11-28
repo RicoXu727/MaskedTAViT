@@ -19,9 +19,20 @@ from .utils import shift_dim
 
 
 class VideoGPT(pl.LightningModule):
-    def __init__(self, args):
+    def __init__(
+        self,
+        resolution: int = 128,
+        n_cond_frames: int = 10,
+        hidden_dim: int = 576,
+        heads: int = 4,
+        layers: int = 8,
+        dropout: float = 0.2,
+        attn_type: str = 'full',
+        attn_dropout: float = 0.3
+    ):
         super().__init__()
-        self.args = args
+        self.resolution = resolution
+        self.n_cond_frames = n_cond_frames
 
         # Load VQ-VAE and set all parameters to no grad
         from .vqvae import VQVAE
@@ -36,11 +47,11 @@ class VideoGPT(pl.LightningModule):
         self.vqvae.eval()
 
         # ResNet34 for frame conditioning
-        self.use_frame_cond = args.n_cond_frames > 0
+        self.use_frame_cond = n_cond_frames > 0
         if self.use_frame_cond:
-            frame_cond_shape = (args.n_cond_frames,
-                                args.resolution // 4,
-                                args.resolution // 4,
+            frame_cond_shape = (n_cond_frames,
+                                resolution // 4,
+                                resolution // 4,
                                 240)
             self.resnet = resnet34(1, (1, 4, 4), resnet_dim=240)
             self.cond_pos_embd = AddBroadcastPosEmbed(
@@ -52,18 +63,18 @@ class VideoGPT(pl.LightningModule):
         # VideoGPT transformer
         self.shape = self.vqvae.latent_shape
 
-        self.fc_in = nn.Linear(self.vqvae.embedding_dim, args.hidden_dim, bias=False)
+        self.fc_in = nn.Linear(self.vqvae.embedding_dim, hidden_dim, bias=False)
         self.fc_in.weight.data.normal_(std=0.02)
 
         self.attn_stack = AttentionStack(
-            self.shape, args.hidden_dim, args.heads, args.layers, args.dropout,
-            args.attn_type, args.attn_dropout, args.class_cond_dim, frame_cond_shape
+            self.shape, hidden_dim, heads, layers, dropout,
+            attn_type, attn_dropout, frame_cond_shape
         )
 
-        self.norm = LayerNorm(args.hidden_dim, args.class_cond_dim)
+        self.norm = nn.LayerNorm(hidden_dim)
 
-        self.fc_out = nn.Linear(args.hidden_dim, self.vqvae.n_codes, bias=False)
-        self.fc_out.weight.data.copy_(torch.zeros(self.vqvae.n_codes, args.hidden_dim))
+        self.fc_out = nn.Linear(hidden_dim, self.vqvae.n_codes, bias=False)
+        self.fc_out.weight.data.copy_(torch.zeros(self.vqvae.n_codes, hidden_dim))
 
         # caches for faster decoding (if necessary)
         self.frame_cond_cache = None
@@ -77,15 +88,12 @@ class VideoGPT(pl.LightningModule):
         device = self.fc_in.weight.device
 
         cond = dict()
-        if self.use_frame_cond or self.args.class_cond:
+        if self.use_frame_cond:
             assert batch is not None
             video = batch['video']
 
-            if self.args.class_cond:
-                label = batch['label']
-                cond['class_cond'] = F.one_hot(label, self.args.class_cond_dim).type_as(video)
             if self.use_frame_cond:
-                cond['frame_cond'] = video[:, :, :self.args.n_cond_frames]
+                cond['frame_cond'] = video[:, :, :self.n_cond_frames]
 
         samples = torch.zeros((n,) + self.shape).long().to(device)
         idxs = list(itertools.product(*[range(s) for s in self.shape]))
@@ -144,11 +152,8 @@ class VideoGPT(pl.LightningModule):
         x = batch['video']
 
         cond = dict()
-        if self.args.class_cond:
-            label = batch['label']
-            cond['class_cond'] = F.one_hot(label, self.args.class_cond_dim).type_as(x)
         if self.use_frame_cond:
-            cond['frame_cond'] = x[:, :, :self.args.n_cond_frames]
+            cond['frame_cond'] = x[:, :, :self.n_cond_frames]
 
         with torch.no_grad():
             targets, x = self.vqvae.encode(x, include_embeddings=True)
@@ -167,22 +172,3 @@ class VideoGPT(pl.LightningModule):
         scheduler = lr_scheduler.CosineAnnealingLR(optimizer, self.args.max_steps)
         return [optimizer], [dict(scheduler=scheduler, interval='step', frequency=1)]
 
-
-    @staticmethod
-    def add_model_specific_args(parent_parser):
-        parser = argparse.ArgumentParser(parents=[parent_parser], add_help=False)
-        parser.add_argument('--vqvae', type=str, default='kinetics_stride4x4x4',
-                            help='path to vqvae ckpt, or model name to download pretrained')
-        parser.add_argument('--n_cond_frames', type=int, default=0)
-        parser.add_argument('--class_cond', action='store_true')
-
-        # VideoGPT hyperparmeters
-        parser.add_argument('--hidden_dim', type=int, default=576)
-        parser.add_argument('--heads', type=int, default=4)
-        parser.add_argument('--layers', type=int, default=8)
-        parser.add_argument('--dropout', type=float, default=0.2)
-        parser.add_argument('--attn_type', type=str, default='full',
-                            choices=['full', 'sparse'])
-        parser.add_argument('--attn_dropout', type=float, default=0.3)
-
-        return parser
