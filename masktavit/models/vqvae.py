@@ -1,10 +1,12 @@
-## Embedding model for video 
 '''
 Code referenced from https://github.com/wilson1yan/VideoGPT
+Modified to fit for PyTorch Lightning 2.0
 '''
+
 import math
 import argparse
 import numpy as np
+from typing import Union
 
 import pytorch_lightning as pl
 import torch
@@ -16,27 +18,40 @@ from .attention import MultiHeadAttention
 from .utils import shift_dim
 
 class VQVAE(pl.LightningModule):
-    def __init__(self, args):
+    def __init__(
+        self, 
+        sequence_length: int = 16,
+        resolution: int = 64,
+        embedding_dim: int = 256,
+        n_codes: int = 2048,
+        n_hiddens: int = 240,
+        n_res_layers: int = 4,
+        downsample: Union[int, tuple] = (4, 4, 4),
+    ):
+
         super().__init__()
-        self.args = args
-        self.embedding_dim = args.embedding_dim
-        self.n_codes = args.n_codes
+        self.sequence_length = sequence_length
+        self.resolution = resolution
 
-        self.encoder = Encoder(args.n_hiddens, args.n_res_layers, args.downsample)
-        self.decoder = Decoder(args.n_hiddens, args.n_res_layers, args.downsample)
+        self.embedding_dim = embedding_dim
+        self.n_codes = n_codes
 
-        self.pre_vq_conv = SamePadConv3d(args.n_hiddens, args.embedding_dim, 1)
-        self.post_vq_conv = SamePadConv3d(args.embedding_dim, args.n_hiddens, 1)
+        self.encoder = Encoder(n_hiddens, n_res_layers, downsample)
+        self.decoder = Decoder(n_hiddens, n_res_layers, downsample)
 
-        self.codebook = Codebook(args.n_codes, args.embedding_dim)
+        self.pre_vq_conv = SamePadConv3d(n_hiddens, embedding_dim, 1)
+        self.post_vq_conv = SamePadConv3d(embedding_dim, n_hiddens, 1)
+
+        self.codebook = Codebook(n_codes, embedding_dim)
         self.save_hyperparameters()
 
     @property
     def latent_shape(self):
-        input_shape = (self.args.sequence_length, self.args.resolution,
-                       self.args.resolution)
+        input_shape = (self.sequence_length, 
+                        self.resolution,
+                        self.resolution)
         return tuple([s // d for s, d in zip(input_shape,
-                                             self.args.downsample)])
+                                             self.downsample)])
 
     def encode(self, x, include_embeddings=False):
         h = self.pre_vq_conv(self.encoder(x))
@@ -75,16 +90,6 @@ class VQVAE(pl.LightningModule):
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=3e-4, betas=(0.9, 0.999))
-
-    @staticmethod
-    def add_model_specific_args(parent_parser):
-        parser = argparse.ArgumentParser(parents=[parent_parser], add_help=False)
-        parser.add_argument('--embedding_dim', type=int, default=256)
-        parser.add_argument('--n_codes', type=int, default=2048)
-        parser.add_argument('--n_hiddens', type=int, default=240)
-        parser.add_argument('--n_res_layers', type=int, default=4)
-        parser.add_argument('--downsample', nargs='+', type=int, default=(4, 4, 4))
-        return parser
 
 
 class AxialBlock(nn.Module):
@@ -272,6 +277,7 @@ class Decoder(nn.Module):
                 h = F.relu(h)
         return h
 
+
 # Does not support dilation
 class SamePadConv3d(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, bias=True):
@@ -317,3 +323,4 @@ class SamePadConvTranspose3d(nn.Module):
 
     def forward(self, x):
         return self.convt(F.pad(x, self.pad_input))
+
