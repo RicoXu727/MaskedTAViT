@@ -11,7 +11,7 @@ import torch.nn.functional as F
 from torch.utils.checkpoint import checkpoint
 
 from .utils import shift_dim, view_range, tensor_slice
-
+import itertools
 
 class AttentionStack(nn.Module):
     def __init__(
@@ -212,6 +212,17 @@ class FullAttention(nn.Module):
         seq_len = np.prod(shape)
         if self.causal:
             self.register_buffer('mask', torch.tril(torch.ones(seq_len, seq_len)))
+        
+        self.distance = torch.zeros(seq_len, seq_len)
+        idxs = list(itertools.product(*[range(s) for s in shape]))
+        
+        for i in range(0,seq_len):
+            for j in range(i,seq_len):
+                self.distance[i][j] = sum(abs(idxs[i][k]-idxs[j][k]) for k in range(0,len(shape))) #l1 distance
+                self.distance[j][i] = self.distance[i][j]
+        max_distance = self.distance[0][seq_len]
+        self.distance_mask = torch.exp(-self.distance/max_distance)
+
 
     def forward(self, q, k, v, decode_step, decode_idx):
         mask = self.mask if self.causal else None
