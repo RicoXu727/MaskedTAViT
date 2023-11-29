@@ -97,28 +97,18 @@ def eval_fvd(i3d, videogpt, loader, device):
     fake_embeddings = torch.cat(fake_embeddings)
 
     real = batch['video'].to(device)
-    real_recon_embeddings = []
-    for i in range(0, batch['video'].shape[0], MAX_BATCH):
-        real_recon = (videogpt.get_reconstruction(batch['video'][i:i+MAX_BATCH]) + 0.5).clamp(0, 1)
-        real_recon = real_recon.permute(0, 2, 3, 4, 1).cpu().numpy()
-        real_recon = (real_recon * 255).astype('uint8')
-        real_recon_embeddings.append(get_fvd_logits(real_recon, i3d=i3d, device=device))
-    real_recon_embeddings = torch.cat(real_recon_embeddings)
-
     real = real + 0.5
     real = real.permute(0, 2, 3, 4, 1).cpu().numpy() # BCTHW -> BTHWC
     real = (real * 255).astype('uint8')
     real_embeddings = get_fvd_logits(real, i3d=i3d, device=device)
 
     fake_embeddings = all_gather(fake_embeddings)
-    real_recon_embeddings = all_gather(real_recon_embeddings)
     real_embeddings = all_gather(real_embeddings)
 
-    assert fake_embeddings.shape[0] == real_recon_embeddings.shape[0] == real_embeddings.shape[0] == 256
+    assert fake_embeddings.shape[0] == real_embeddings.shape[0] == 256
 
     fvd = frechet_distance(fake_embeddings.clone(), real_embeddings)
-    fvd_star = frechet_distance(fake_embeddings.clone(), real_recon_embeddings)
-    return fvd.item(), fvd_star.item()
+    return fvd.item()
 
 
 if __name__ == '__main__':
