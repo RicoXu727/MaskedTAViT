@@ -21,20 +21,17 @@ def main():
         save_top_k = 1
     )
 
-    logger = TensorBoardLogger("tb_logs", name="gpt_v0")
-
     cli = LightningClI(
         VideoGPT,
         VideoData,
         seed_everything_default = 123,
         run = False,
         trainer_defaults = {
-            "max_epochs": 20,
+            "max_epochs": 5,
             "accelerator": "auto",
             "devices": "auto", 
             "strategy": "auto",
-            "callbacks":[val_checkpoint, best_checkpoint],
-            "logger": logger
+            "callbacks":[val_checkpoint, best_checkpoint]
             }   
     )
 
