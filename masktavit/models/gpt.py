@@ -70,6 +70,8 @@ class VideoGPT(pl.LightningModule):
 
         self.norm = nn.LayerNorm(hidden_dim)
 
+        self.max_steps = 
+
         self.fc_out = nn.Linear(hidden_dim, self.vqvae.n_codes, bias=False)
         self.fc_out.weight.data.copy_(torch.zeros(self.vqvae.n_codes, hidden_dim))
 
@@ -165,7 +167,6 @@ class VideoGPT(pl.LightningModule):
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=3e-4, betas=(0.9, 0.999))
-        assert hasattr(self.args, 'max_steps') and self.args.max_steps is not None, f"Must set max_steps argument"
-        scheduler = lr_scheduler.CosineAnnealingLR(optimizer, self.args.max_steps)
+        scheduler = lr_scheduler.CosineAnnealingLR(optimizer, self.max_steps)
         return [optimizer], [dict(scheduler=scheduler, interval='step', frequency=1)]
 

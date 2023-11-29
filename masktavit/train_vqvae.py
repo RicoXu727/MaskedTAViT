@@ -24,8 +24,6 @@ def main():
         save_top_k = 1
     )
 
-    logger = TensorBoardLogger("tb_logs", name="vqvae_v0")
-
     cli = LightningCLI(
         VQVAE, 
         VideoData,
@@ -36,8 +34,7 @@ def main():
             "accelerator": "auto",
             "devices": "auto", 
             "strategy": "auto",
-            "callbacks":[val_checkpoint, best_checkpoint],
-            "logger": logger
+            "callbacks":[val_checkpoint, best_checkpoint]
             }
     )
 

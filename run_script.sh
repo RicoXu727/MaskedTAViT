@@ -7,6 +7,7 @@ if [ "$current_env" != "base" ]; then
     source /home/shiwen/anaconda3/bin/activate venv
 fi
 
+rm -rf vqvae_checkpoints
 rm -rf lightning_logs
 
 # tensorboard --logdir .
@@ -16,4 +17,4 @@ python3 masktavit/train_vqvae.py
 
 echo "Training the VideoGPT..."
 
-
+# python train.py --help
