@@ -45,7 +45,6 @@ class VQVAE(pl.LightningModule):
         self.codebook = Codebook(n_codes, embedding_dim)
         self.save_hyperparameters()
 
-    @property
     def latent_shape(self):
         input_shape = (self.sequence_length, 
                         self.resolution,
