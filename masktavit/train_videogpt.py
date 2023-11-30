@@ -1,8 +1,9 @@
 
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
-from pytorch_lightning.cli import LightningCLI
-from pytorch_lightning.loggers import TensorBoardLogger
+
+from models.gpt import VideoGPT, GPTLightningCLI
+from models.data import VideoData
 
 def main():
 
@@ -21,13 +22,14 @@ def main():
         save_top_k = 1
     )
 
-    cli = LightningClI(
+    cli = GPTLightningCLI(
         VideoGPT,
         VideoData,
         seed_everything_default = 123,
         run = False,
         trainer_defaults = {
-            "max_epochs": 5,
+            "max_epochs": 20,
+            "max_steps": 2000,
             "accelerator": "auto",
             "devices": "auto", 
             "strategy": "auto",
@@ -35,6 +37,7 @@ def main():
             }   
     )
 
+    cli.trainer.fit(cli.model, datamodule=cli.datamodule)
 
 if __name__ == '__main__':
     main()

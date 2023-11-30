@@ -10,8 +10,6 @@ fi
 rm -rf vqvae_checkpoints
 rm -rf lightning_logs
 
-# tensorboard --logdir .
-
 echo "Training the VQ-VAE..."
 python3 masktavit/train_vqvae.py
 

@@ -59,13 +59,16 @@ sh masktavit/data/bair/bair_dataset.sh datasets/bair
 
 
 ### Train and Test
-
+```
+./run_script.sh
+```
 ### Evaluation
 
 ## Maintainers
 ```
 Longcong Xu lx2305@columbia.edu
 Shiwen Tang st3510@columbia.edu
+Ruochen Zhang rz2597@columbia.edu
 ```
 
 ## References

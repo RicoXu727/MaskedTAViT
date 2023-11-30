@@ -2,7 +2,6 @@
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.cli import LightningCLI
-from pytorch_lightning.loggers import TensorBoardLogger
 
 from models.vqvae import VQVAE
 from models.data import VideoData

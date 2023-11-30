@@ -12,9 +12,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim.lr_scheduler as lr_scheduler
 import pytorch_lightning as pl
+from pytorch_lightning.cli import LightningCLI
 
 from .resnet import resnet34
-from .attention import AttentionStack, LayerNorm, AddBroadcastPosEmbed
+from .attention import AttentionStack, AddBroadcastPosEmbed
 from .utils import shift_dim
 
 from .vqvae import VQVAE
@@ -30,7 +31,8 @@ class VideoGPT(pl.LightningModule):
         dropout: float = 0.2,
         attn_type: str = 'full',
         attn_dropout: float = 0.3,
-        vqvae_ckpt: str = "/home/shiwen/MaskedTAViT/vqvae_checkpoints/latest_vqvae_model.ckpt"
+        vqvae_ckpt: str = "/home/shiwen/MaskedTAViT/vqvae_checkpoints/best_vqvae_model.ckpt",
+        max_steps: int = -1
     ):
         super().__init__()
         self.resolution = resolution
@@ -70,7 +72,7 @@ class VideoGPT(pl.LightningModule):
 
         self.norm = nn.LayerNorm(hidden_dim)
 
-        self.max_steps = 
+        self.max_steps = max_steps
 
         self.fc_out = nn.Linear(hidden_dim, self.vqvae.n_codes, bias=False)
         self.fc_out.weight.data.copy_(torch.zeros(self.vqvae.n_codes, hidden_dim))
@@ -82,49 +84,6 @@ class VideoGPT(pl.LightningModule):
 
     def get_reconstruction(self, videos):
         return self.vqvae.decode(self.vqvae.encode(videos))
-
-    def sample(self, n, batch=None):
-        device = self.fc_in.weight.device
-
-        cond = dict()
-        if self.use_frame_cond:
-            assert batch is not None
-            video = batch['video']
-
-            if self.use_frame_cond:
-                cond['frame_cond'] = video[:, :, :self.n_cond_frames]
-
-        samples = torch.zeros((n,) + self.shape).long().to(device)
-        idxs = list(itertools.product(*[range(s) for s in self.shape]))
-
-        with torch.no_grad():
-            prev_idx = None
-            for i, idx in enumerate(tqdm(idxs)):
-                batch_idx_slice = (slice(None, None), *[slice(i, i + 1) for i in idx])
-                batch_idx = (slice(None, None), *idx)
-                embeddings = self.vqvae.codebook.dictionary_lookup(samples)
-
-                if prev_idx is None:
-                    # set arbitrary input values for the first token
-                    # does not matter what value since it will be shifted anyways
-                    embeddings_slice = embeddings[batch_idx_slice]
-                    samples_slice = samples[batch_idx_slice]
-                else:
-                    embeddings_slice = embeddings[prev_idx]
-                    samples_slice = samples[prev_idx]
-
-                logits = self(embeddings_slice, samples_slice, cond,
-                              decode_step=i, decode_idx=idx)[1]
-                # squeeze all possible dim except batch dimension
-                logits = logits.squeeze().unsqueeze(0) if logits.shape[0] == 1 else logits.squeeze()
-                probs = F.softmax(logits, dim=-1)
-                samples[batch_idx] = torch.multinomial(probs, 1).squeeze(-1)
-
-                prev_idx = batch_idx_slice
-            samples = self.vqvae.decode(samples)
-            samples = torch.clamp(samples, -0.5, 0.5) + 0.5
-
-        return samples # BCTHW in [0, 1]
 
 
     def forward(self, x, targets, cond, decode_step=None, decode_idx=None):
@@ -170,3 +129,6 @@ class VideoGPT(pl.LightningModule):
         scheduler = lr_scheduler.CosineAnnealingLR(optimizer, self.max_steps)
         return [optimizer], [dict(scheduler=scheduler, interval='step', frequency=1)]
 
+class GPTLightningCLI(LightningCLI):
+    def add_arguments_to_parser(self, parser):
+        parser.link_arguments("trainer.max_steps", "model.max_steps")
