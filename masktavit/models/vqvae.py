@@ -42,6 +42,8 @@ class VQVAE(pl.LightningModule):
         self.pre_vq_conv = SamePadConv3d(n_hiddens, embedding_dim, 1)
         self.post_vq_conv = SamePadConv3d(embedding_dim, n_hiddens, 1)
 
+        self.downsample = downsample
+
         self.codebook = Codebook(n_codes, embedding_dim)
         self.save_hyperparameters()
 

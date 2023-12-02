@@ -24,7 +24,7 @@ class VideoGPT(pl.LightningModule):
     def __init__(
         self,
         resolution: int = 128,
-        n_cond_frames: int = 10,
+        n_cond_frames: int = 0,
         hidden_dim: int = 576,
         heads: int = 4,
         layers: int = 8,
@@ -49,8 +49,8 @@ class VideoGPT(pl.LightningModule):
         self.use_frame_cond = n_cond_frames > 0
         if self.use_frame_cond:
             frame_cond_shape = (n_cond_frames,
-                                resolution // 4,
-                                resolution // 4,
+                                resolution // 8,
+                                resolution // 8,
                                 240)
             self.resnet = resnet34(1, (1, 4, 4), resnet_dim=240)
             self.cond_pos_embd = AddBroadcastPosEmbed(
@@ -60,7 +60,7 @@ class VideoGPT(pl.LightningModule):
             frame_cond_shape = None
 
         # VideoGPT transformer
-        self.shape = self.vqvae.latent_shape
+        self.shape = self.vqvae.latent_shape()
 
         self.fc_in = nn.Linear(self.vqvae.embedding_dim, hidden_dim, bias=False)
         self.fc_in.weight.data.normal_(std=0.02)
@@ -86,19 +86,19 @@ class VideoGPT(pl.LightningModule):
         return self.vqvae.decode(self.vqvae.encode(videos))
 
 
-    def forward(self, x, targets, cond, decode_step=None, decode_idx=None):
+    def forward(self, x, targets, frame_cond, decode_step=None, decode_idx=None):
         if self.use_frame_cond:
             if decode_step is None:
-                cond['frame_cond'] = self.cond_pos_embd(self.resnet(cond['frame_cond']))
+                frame_cond = self.cond_pos_embd(self.resnet(frame_cond))
             elif decode_step == 0:
-                self.frame_cond_cache = self.cond_pos_embd(self.resnet(cond['frame_cond']))
-                cond['frame_cond'] = self.frame_cond_cache
+                self.frame_cond_cache = self.cond_pos_embd(self.resnet(frame_cond))
+                frame_cond = self.frame_cond_cache
             else:
-                cond['frame_cond'] = self.frame_cond_cache
+                frame_cond = self.frame_cond_cache
 
         h = self.fc_in(x)
-        h = self.attn_stack(h, cond, decode_step, decode_idx)
-        h = self.norm(h, cond)
+        h = self.attn_stack(h, frame_cond, decode_step, decode_idx)
+        h = self.norm(h)
         logits = self.fc_out(h)
 
         loss = F.cross_entropy(shift_dim(logits, -1, 1), targets)
@@ -109,15 +109,15 @@ class VideoGPT(pl.LightningModule):
         self.vqvae.eval()
         x = batch['video']
 
-        cond = dict()
+        frame_cond = []
         if self.use_frame_cond:
-            cond['frame_cond'] = x[:, :, :self.n_cond_frames]
+            frame_cond = x[:, :, :self.n_cond_frames]
 
         with torch.no_grad():
             targets, x = self.vqvae.encode(x, include_embeddings=True)
             x = shift_dim(x, 1, -1)
 
-        loss, _ = self(x, targets, cond)
+        loss, _ = self(x, targets, frame_cond)
         return loss
 
     def validation_step(self, batch, batch_idx):
