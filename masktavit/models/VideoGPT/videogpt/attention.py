@@ -218,7 +218,7 @@ class FullAttention(nn.Module):
             for j in range(i,seq_len):
                 self.distance[i][j] = sum(abs(idxs[i][k]-idxs[j][k]) for k in range(0,len(shape))) #l1 distance
                 self.distance[j][i] = self.distance[i][j]
-        max_distance = self.distance[0][seq_len]
+        max_distance = self.distance[0][seq_len-1]
         self.distance_mask = torch.exp(-self.distance/max_distance)
                 
         
@@ -231,8 +231,10 @@ class FullAttention(nn.Module):
         q = q.flatten(start_dim=2, end_dim=-2)
         k = k.flatten(start_dim=2, end_dim=-2)
         v = v.flatten(start_dim=2, end_dim=-2)
-        
-        out = scaled_dot_product_attention(q, k, v, mask=mask, distance_mask=self.distance_mask,
+
+        distance_mask = torch.tensor(self.distance_mask,dtype=k.dtype, device=q.device)
+
+        out = scaled_dot_product_attention(q, k, v, mask=mask, distance_mask = distance_mask,
                                            attn_dropout=self.attn_dropout,
                                            training=self.training)
 
@@ -515,7 +517,7 @@ def scaled_dot_product_attention(q, k, v, mask=None,distance_mask=None, attn_dro
     if mask is not None:
         attn = attn.masked_fill(mask == 0, float('-inf'))
     if distance_mask is not None:
-        attn = torch.mul(distance_mask,attn)
+        attn = torch.mul(distance_mask.type_as(attn),attn)
     attn_float = F.softmax(attn, dim=-1)
     attn = attn_float.type_as(attn) # b x n_head x d1 x ... x dn x d
     attn = F.dropout(attn, p=attn_dropout, training=training)
