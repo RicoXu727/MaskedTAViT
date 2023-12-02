@@ -220,7 +220,7 @@ class FullAttention(nn.Module):
             for j in range(i,seq_len):
                 self.distance[i][j] = sum(abs(idxs[i][k]-idxs[j][k]) for k in range(0,len(shape))) #l1 distance
                 self.distance[j][i] = self.distance[i][j]
-        max_distance = self.distance[0][seq_len]
+        max_distance = self.distance[0][seq_len-1]
         self.distance_mask = torch.exp(-self.distance/max_distance)
 
 
@@ -234,9 +234,13 @@ class FullAttention(nn.Module):
         k = k.flatten(start_dim=2, end_dim=-2)
         v = v.flatten(start_dim=2, end_dim=-2)
 
+          
+        distance_mask = torch.tensor(self.distance_mask,dtype=k.dtype, device=q.device)
+
         out = scaled_dot_product_attention(q, k, v, mask=mask,
                                            attn_dropout=self.attn_dropout,
-                                           training=self.training)
+                                           training=self.training, 
+                                           distance_mask=distance_mask)
 
         return view_range(out, 2, 3, old_shape)
 
@@ -508,7 +512,7 @@ class AddBroadcastPosEmbed(nn.Module):
         return x + embs
 
 ################# Helper Functions ###################################
-def scaled_dot_product_attention(q, k, v, mask=None, attn_dropout=0., training=True):
+def scaled_dot_product_attention(q, k, v, mask=None, attn_dropout=0., training=True,distance_mask=None):
     # Performs scaled dot-product attention over the second to last dimension dn
 
     # (b, n_head, d1, ..., dn, d)
@@ -516,6 +520,9 @@ def scaled_dot_product_attention(q, k, v, mask=None, attn_dropout=0., training=T
     attn = attn / np.sqrt(q.shape[-1])
     if mask is not None:
         attn = attn.masked_fill(mask == 0, float('-inf'))
+    if distance_mask is not None:
+        
+        attn = torch.mul(distance_mask.type_as(attn),attn)
     attn_float = F.softmax(attn, dim=-1)
     attn = attn_float.type_as(attn) # b x n_head x d1 x ... x dn x d
     attn = F.dropout(attn, p=attn_dropout, training=training)
