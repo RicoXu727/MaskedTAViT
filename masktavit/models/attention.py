@@ -524,10 +524,11 @@ def scaled_dot_product_attention(q, k, v, mask=None, attn_dropout=0., training=T
         if distance_mask.shape == attn.shape[-2:]:
             attn = torch.mul(distance_mask.type_as(attn),attn)
         else:
-            t = int(distance_mask.shape[0]/ attn.shape[-1])
-            hw =  attn.shape[-1]
-            distance_mask=distance_mask[0:hw][0:hw]
-            attn = torch.mul(distance_mask.type_as(attn),attn)
+            t = int(distance_mask.shape[0]/ attn.shape[-2])
+            hw =  attn.shape[-2]
+            
+            distance_mask_modified = distance_mask[0:attn.shape[-2],0:attn.shape[-1]]
+            attn = torch.mul(distance_mask_modified.type_as(attn),attn)
             
     attn_float = F.softmax(attn, dim=-1)
     attn = attn_float.type_as(attn) # b x n_head x d1 x ... x dn x d
