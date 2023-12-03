@@ -512,16 +512,7 @@ class AddBroadcastPosEmbed(nn.Module):
         return x + embs
 
 ################# Helper Functions ###################################
-def scaled_dot_product_attention(q, k, v, mask=None, attn_dropout=0., training=True,distance_mask=None):
-    # Performs scaled dot-product attention over the second to last dimension dn
-
-    # (b, n_head, d1, ..., dn, d)
-    attn = torch.matmul(q, k.transpose(-1, -2))
-    attn = attn / np.sqrt(q.shape[-1])
-    if mask is not None:
-        attn = attn.masked_fill(mask == 0, float('-inf'))
-    if distance_mask is not None:
-        def scaled_dot_product_attention(q, k, v, mask=None, attn_dropout=0., training=True, distance_mask=None):
+def scaled_dot_product_attention(q, k, v, mask=None, attn_dropout=0., training=True, distance_mask=None):
     # Performs scaled dot-product attention over the second to last dimension dn
 
     # (b, n_head, d1, ..., dn, d)
@@ -538,15 +529,6 @@ def scaled_dot_product_attention(q, k, v, mask=None, attn_dropout=0., training=T
             distance_mask=distance_mask[0:hw][0:hw]
             attn = torch.mul(distance_mask.type_as(attn),attn)
             
-    attn_float = F.softmax(attn, dim=-1)
-    attn = attn_float.type_as(attn) # b x n_head x d1 x ... x dn x d
-    attn = F.dropout(attn, p=attn_dropout, training=training)
-
-    a = torch.matmul(attn, v) # b x n_head x d1 x ... x dn x d
-
-    return a
-        
-        attn = torch.mul(distance_mask.type_as(attn),attn)
     attn_float = F.softmax(attn, dim=-1)
     attn = attn_float.type_as(attn) # b x n_head x d1 x ... x dn x d
     attn = F.dropout(attn, p=attn_dropout, training=training)
