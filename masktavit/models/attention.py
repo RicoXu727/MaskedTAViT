@@ -12,10 +12,11 @@ from torch.utils.checkpoint import checkpoint
 
 from .utils import shift_dim, view_range, tensor_slice
 
+import itertools
 
 class AttentionStack(nn.Module):
     def __init__(
-        self, shape, embd_dim, n_head, n_layer, dropout,
+        self, shape, embd_dim, n_head, n_layer, dropout, dist_mask,
         attn_type, attn_dropout, frame_cond_shape,
     ):
         super().__init__()
@@ -36,6 +37,7 @@ class AttentionStack(nn.Module):
                     n_head=n_head,
                     n_layer=n_layer,
                     dropout=dropout,
+                    dist_mask = dist_mask,
                     attn_type=attn_type,
                     attn_dropout=attn_dropout,
                     frame_cond_shape=frame_cond_shape
@@ -65,7 +67,7 @@ class AttentionStack(nn.Module):
 
 class AttentionBlock(nn.Module):
     def __init__(self, shape, embd_dim, n_head, n_layer, dropout,
-                 attn_type, attn_dropout, frame_cond_shape):
+                 attn_type, dist_mask, attn_dropout, frame_cond_shape):
         super().__init__()
         self.use_frame_cond = frame_cond_shape is not None
 
@@ -73,6 +75,7 @@ class AttentionBlock(nn.Module):
         self.post_attn_dp = nn.Dropout(dropout)
         self.attn = MultiHeadAttention(shape, embd_dim, embd_dim, n_head,
                                        n_layer, causal=True, attn_type=attn_type,
+                                       dist_mask = dist_mask,
                                        attn_kwargs=dict(attn_dropout=attn_dropout))
 
         if frame_cond_shape is not None:
@@ -81,6 +84,7 @@ class AttentionBlock(nn.Module):
             self.post_enc_dp = nn.Dropout(dropout)
             self.enc_attn = MultiHeadAttention(shape, embd_dim, frame_cond_shape[-1],
                                                n_head, n_layer, attn_type='full',
+                                               dist_mask = dist_mask,
                                                attn_kwargs=dict(attn_dropout=0.), causal=False)
 
         self.pre_fc_norm = nn.LayerNorm(embd_dim)
@@ -124,7 +128,7 @@ class AttentionBlock(nn.Module):
 
 class MultiHeadAttention(nn.Module):
     def __init__(self, shape, dim_q, dim_kv, n_head, n_layer,
-                 causal, attn_type, attn_kwargs):
+                 causal, attn_type, dist_mask, attn_kwargs):
         super().__init__()
         self.causal = causal
         self.shape = shape
@@ -146,13 +150,12 @@ class MultiHeadAttention(nn.Module):
         self.fc.weight.data.normal_(std=1.0 / np.sqrt(dim_q * n_layer))
 
         if attn_type == 'full':
-            self.attn = FullAttention(shape, causal, **attn_kwargs)
+            self.attn = FullAttention(shape, causal, dist_mask, **attn_kwargs)
         elif attn_type == 'axial':
             assert not causal, 'causal axial attention is not supported'
             self.attn = AxialAttention(len(shape), **attn_kwargs)
         elif attn_type == 'sparse':
-            self.attn = SparseAttention(shape, n_head, causal, **attn_kwargs)
-
+            raise Exception('sparse attention is not supported')
         self.cache = None
 
     def forward(self, q, k, v, decode_step=None, decode_idx=None):
@@ -204,7 +207,7 @@ class MultiHeadAttention(nn.Module):
 
 ############## Attention #######################
 class FullAttention(nn.Module):
-    def __init__(self, shape, causal, attn_dropout):
+    def __init__(self, shape, causal, dist_mask, attn_dropout):
         super().__init__()
         self.causal = causal
         self.attn_dropout = attn_dropout
@@ -212,6 +215,18 @@ class FullAttention(nn.Module):
         seq_len = np.prod(shape)
         if self.causal:
             self.register_buffer('mask', torch.tril(torch.ones(seq_len, seq_len)))
+        
+        self.distance_mask = None
+        if dist_mask:
+            self.distance = torch.zeros(seq_len, seq_len)
+            idxs = list(itertools.product(*[range(s) for s in shape]))
+            
+            for i in range(0,seq_len):
+                for j in range(i,seq_len):
+                    self.distance[i][j] = sum(abs(idxs[i][k]-idxs[j][k]) for k in range(0,len(shape))) #l1 distance
+                    self.distance[j][i] = self.distance[i][j]
+            max_distance = self.distance[0][seq_len-1]
+            self.distance_mask = torch.exp(-self.distance/max_distance)
 
     def forward(self, q, k, v, decode_step, decode_idx):
         mask = self.mask if self.causal else None
@@ -225,7 +240,8 @@ class FullAttention(nn.Module):
 
         out = scaled_dot_product_attention(q, k, v, mask=mask,
                                            attn_dropout=self.attn_dropout,
-                                           training=self.training)
+                                           training=self.training,
+                                           distance_mask=self.distance_mask)
 
         return view_range(out, 2, 3, old_shape)
 
@@ -289,7 +305,7 @@ class AddBroadcastPosEmbed(nn.Module):
         return x + embs
 
 ################# Helper Functions ###################################
-def scaled_dot_product_attention(q, k, v, mask=None, attn_dropout=0., training=True):
+def scaled_dot_product_attention(q, k, v, mask=None, attn_dropout=0., training=True, distance_mask=None):
     # Performs scaled dot-product attention over the second to last dimension dn
 
     # (b, n_head, d1, ..., dn, d)
@@ -297,6 +313,17 @@ def scaled_dot_product_attention(q, k, v, mask=None, attn_dropout=0., training=T
     attn = attn / np.sqrt(q.shape[-1])
     if mask is not None:
         attn = attn.masked_fill(mask == 0, float('-inf'))
+
+    if distance_mask is not None:
+        if distance_mask.shape == attn.shape[-2:]:
+            attn = torch.mul(distance_mask.type_as(attn),attn)
+        else:
+            t = int(distance_mask.shape[0]/ attn.shape[-2])
+            hw =  attn.shape[-2]
+            
+            distance_mask_modified = distance_mask[0:attn.shape[-2],0:attn.shape[-1]]
+            attn = torch.mul(distance_mask_modified.type_as(attn),attn)
+
     attn_float = F.softmax(attn, dim=-1)
     attn = attn_float.type_as(attn) # b x n_head x d1 x ... x dn x d
     attn = F.dropout(attn, p=attn_dropout, training=training)

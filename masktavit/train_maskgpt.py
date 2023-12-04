@@ -2,7 +2,7 @@
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 
-from models.gpt import VideoGPT, GPTLightningCLI
+from models.maskgpt import MaskedVideoGPT, GPTLightningCLI
 from models.data import VideoData
 
 def main():
@@ -10,7 +10,7 @@ def main():
     val_checkpoint = ModelCheckpoint(
         dirpath='mask_gpt_checkpoints',
         filename = "{epoch}-{step}-{val/loss:.6f}",
-        every_n_epochs = 2,
+        every_n_epochs = 1,
         save_top_k = -1
     )
 
@@ -23,12 +23,12 @@ def main():
     )
 
     cli = GPTLightningCLI(
-        VideoGPT,
+        MaskedVideoGPT,
         VideoData,
         seed_everything_default = 123,
         run = False,
         trainer_defaults = {
-            "max_epochs": 30,
+            "max_epochs": 20,
             "max_steps": 200000,
             "accelerator": "auto",
             "devices": "auto", 

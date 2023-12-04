@@ -28,7 +28,7 @@ def main():
         seed_everything_default = 123,
         run = False,
         trainer_defaults = {
-            "max_epochs": 10,
+            "max_epochs": 30,
             "max_steps": 200000,
             "accelerator": "auto",
             "devices": "auto", 
