@@ -216,6 +216,7 @@ class FullAttention(nn.Module):
         if self.causal:
             self.register_buffer('mask', torch.tril(torch.ones(seq_len, seq_len)))
         
+
         self.distance_mask = None
         if dist_mask:
             self.distance = torch.zeros(seq_len, seq_len)
@@ -227,6 +228,7 @@ class FullAttention(nn.Module):
                     self.distance[j][i] = self.distance[i][j]
             max_distance = self.distance[0][seq_len-1]
             self.distance_mask = torch.exp(-self.distance/max_distance)
+
 
     def forward(self, q, k, v, decode_step, decode_idx):
         mask = self.mask if self.causal else None
