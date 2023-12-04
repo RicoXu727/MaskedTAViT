@@ -11,11 +11,12 @@ import torch.nn.functional as F
 from torch.utils.checkpoint import checkpoint
 
 from .utils import shift_dim, view_range, tensor_slice
+
 import itertools
 
 class AttentionStack(nn.Module):
     def __init__(
-        self, shape, embd_dim, n_head, n_layer, dropout,
+        self, shape, embd_dim, n_head, n_layer, dropout, dist_mask,
         attn_type, attn_dropout, frame_cond_shape,
     ):
         super().__init__()
@@ -36,6 +37,7 @@ class AttentionStack(nn.Module):
                     n_head=n_head,
                     n_layer=n_layer,
                     dropout=dropout,
+                    dist_mask = dist_mask,
                     attn_type=attn_type,
                     attn_dropout=attn_dropout,
                     frame_cond_shape=frame_cond_shape
@@ -44,12 +46,12 @@ class AttentionStack(nn.Module):
             ]
         )
 
-    def forward(self, x, cond, decode_step, decode_idx):
+    def forward(self, x, frame_cond, decode_step, decode_idx):
         """
         Args
         ------
             x: (b, d1, d2, ..., dn, embd_dim)
-            cond: a dictionary of conditioning tensors
+            frame_cond: conditioning tensor
 
             (below is used only when sampling for fast decoding)
             decode: the enumerated rasterscan order of the current idx being sampled
@@ -58,14 +60,14 @@ class AttentionStack(nn.Module):
         x = self.right_shift(x, decode_step)
         x = self.pos_embd(x, decode_step, decode_idx)
         for net in self.attn_nets:
-            x = net(x, cond, decode_step, decode_idx)
+            x = net(x, frame_cond, decode_step, decode_idx)
 
         return x
 
 
 class AttentionBlock(nn.Module):
     def __init__(self, shape, embd_dim, n_head, n_layer, dropout,
-                 attn_type, attn_dropout, frame_cond_shape):
+                 attn_type, dist_mask, attn_dropout, frame_cond_shape):
         super().__init__()
         self.use_frame_cond = frame_cond_shape is not None
 
@@ -73,6 +75,7 @@ class AttentionBlock(nn.Module):
         self.post_attn_dp = nn.Dropout(dropout)
         self.attn = MultiHeadAttention(shape, embd_dim, embd_dim, n_head,
                                        n_layer, causal=True, attn_type=attn_type,
+                                       dist_mask = dist_mask,
                                        attn_kwargs=dict(attn_dropout=attn_dropout))
 
         if frame_cond_shape is not None:
@@ -81,6 +84,7 @@ class AttentionBlock(nn.Module):
             self.post_enc_dp = nn.Dropout(dropout)
             self.enc_attn = MultiHeadAttention(shape, embd_dim, frame_cond_shape[-1],
                                                n_head, n_layer, attn_type='full',
+                                               dist_mask = dist_mask,
                                                attn_kwargs=dict(attn_dropout=0.), causal=False)
 
         self.pre_fc_norm = nn.LayerNorm(embd_dim)
@@ -91,8 +95,8 @@ class AttentionBlock(nn.Module):
             nn.Linear(in_features=embd_dim * 4, out_features=embd_dim),
         )
 
-    def forward(self, x, cond, decode_step, decode_idx):
-        h = self.pre_attn_norm(x, cond)
+    def forward(self, x, frame_cond, decode_step, decode_idx):
+        h = self.pre_attn_norm(x)
         if self.training:
             h = checkpoint(self.attn, h, h, h, decode_step, decode_idx)
         else:
@@ -101,17 +105,17 @@ class AttentionBlock(nn.Module):
         x = x + h
 
         if self.use_frame_cond:
-            h = self.pre_enc_norm(x, cond)
+            h = self.pre_enc_norm(x)
             if self.training:
-                h = checkpoint(self.enc_attn, h, cond['frame_cond'], cond['frame_cond'],
+                h = checkpoint(self.enc_attn, h, frame_cond, frame_cond,
                                decode_step, decode_idx)
             else:
-                h = self.enc_attn(h, cond['frame_cond'], cond['frame_cond'],
+                h = self.enc_attn(h, frame_cond, frame_cond,
                                   decode_step, decode_idx)
             h = self.post_enc_dp(h)
             x = x + h
 
-        h = self.pre_fc_norm(x, cond)
+        h = self.pre_fc_norm(x)
         if self.training:
             h = checkpoint(self.fc_block, h)
         else:
@@ -124,7 +128,7 @@ class AttentionBlock(nn.Module):
 
 class MultiHeadAttention(nn.Module):
     def __init__(self, shape, dim_q, dim_kv, n_head, n_layer,
-                 causal, attn_type, attn_kwargs):
+                 causal, attn_type, dist_mask, attn_kwargs):
         super().__init__()
         self.causal = causal
         self.shape = shape
@@ -146,13 +150,12 @@ class MultiHeadAttention(nn.Module):
         self.fc.weight.data.normal_(std=1.0 / np.sqrt(dim_q * n_layer))
 
         if attn_type == 'full':
-            self.attn = FullAttention(shape, causal, **attn_kwargs)
+            self.attn = FullAttention(shape, causal, dist_mask, **attn_kwargs)
         elif attn_type == 'axial':
             assert not causal, 'causal axial attention is not supported'
             self.attn = AxialAttention(len(shape), **attn_kwargs)
         elif attn_type == 'sparse':
-            self.attn = SparseAttention(shape, n_head, causal, **attn_kwargs)
-
+            raise Exception('sparse attention is not supported')
         self.cache = None
 
     def forward(self, q, k, v, decode_step=None, decode_idx=None):
@@ -204,7 +207,7 @@ class MultiHeadAttention(nn.Module):
 
 ############## Attention #######################
 class FullAttention(nn.Module):
-    def __init__(self, shape, causal, attn_dropout):
+    def __init__(self, shape, causal, dist_mask, attn_dropout):
         super().__init__()
         self.causal = causal
         self.attn_dropout = attn_dropout
@@ -213,15 +216,18 @@ class FullAttention(nn.Module):
         if self.causal:
             self.register_buffer('mask', torch.tril(torch.ones(seq_len, seq_len)))
         
-        self.distance = torch.zeros(seq_len, seq_len)
-        idxs = list(itertools.product(*[range(s) for s in shape]))
-        
-        for i in range(0,seq_len):
-            for j in range(i,seq_len):
-                self.distance[i][j] = sum(abs(idxs[i][k]-idxs[j][k]) for k in range(0,len(shape))) #l1 distance
-                self.distance[j][i] = self.distance[i][j]
-        max_distance = self.distance[0][seq_len-1]
-        self.distance_mask = torch.exp(-self.distance/max_distance)
+
+        self.distance_mask = None
+        if dist_mask:
+            self.distance = torch.zeros(seq_len, seq_len)
+            idxs = list(itertools.product(*[range(s) for s in shape]))
+            
+            for i in range(0,seq_len):
+                for j in range(i,seq_len):
+                    self.distance[i][j] = sum(abs(idxs[i][k]-idxs[j][k]) for k in range(0,len(shape))) #l1 distance
+                    self.distance[j][i] = self.distance[i][j]
+            max_distance = self.distance[0][seq_len-1]
+            self.distance_mask = torch.exp(-self.distance/max_distance)
 
 
     def forward(self, q, k, v, decode_step, decode_idx):
@@ -234,13 +240,10 @@ class FullAttention(nn.Module):
         k = k.flatten(start_dim=2, end_dim=-2)
         v = v.flatten(start_dim=2, end_dim=-2)
 
-          
-        distance_mask = torch.tensor(self.distance_mask,dtype=k.dtype, device=q.device)
-
         out = scaled_dot_product_attention(q, k, v, mask=mask,
                                            attn_dropout=self.attn_dropout,
-                                           training=self.training, 
-                                           distance_mask=distance_mask)
+                                           training=self.training,
+                                           distance_mask=self.distance_mask)
 
         return view_range(out, 2, 3, old_shape)
 
@@ -264,213 +267,6 @@ class AxialAttention(nn.Module):
         out = out.view(*old_shape)
         out = shift_dim(out, -2, self.axial_dim)
         return out
-
-
-class SparseAttention(nn.Module):
-    ops = dict()
-    attn_mask = dict()
-    block_layout = dict()
-
-    def __init__(self, shape, n_head, causal, num_local_blocks=4, block=32,
-                 attn_dropout=0.): # does not use attn_dropout
-        super().__init__()
-        self.causal = causal
-        self.shape = shape
-
-        self.sparsity_config = StridedSparsityConfig(shape=shape, n_head=n_head,
-                                                     causal=causal, block=block,
-                                                     num_local_blocks=num_local_blocks)
-
-        if self.shape not in SparseAttention.block_layout:
-            SparseAttention.block_layout[self.shape] = self.sparsity_config.make_layout()
-        if causal and self.shape not in SparseAttention.attn_mask:
-            SparseAttention.attn_mask[self.shape] = self.sparsity_config.make_sparse_attn_mask()
-
-    def get_ops(self):
-        try:
-            from deepspeed.ops.sparse_attention import MatMul, Softmax
-        except:
-            raise Exception('Error importing deepspeed. Please install using `DS_BUILD_SPARSE_ATTN=1 pip install deepspeed`')
-        if self.shape not in SparseAttention.ops:
-            sparsity_layout = self.sparsity_config.make_layout()
-            sparse_dot_sdd_nt = MatMul(sparsity_layout,
-                                       self.sparsity_config.block,
-                                       'sdd',
-                                       trans_a=False,
-                                       trans_b=True)
-
-            sparse_dot_dsd_nn = MatMul(sparsity_layout,
-                                       self.sparsity_config.block,
-                                       'dsd',
-                                       trans_a=False,
-                                       trans_b=False)
-
-            sparse_softmax = Softmax(sparsity_layout, self.sparsity_config.block)
-
-            SparseAttention.ops[self.shape] = (sparse_dot_sdd_nt,
-                                               sparse_dot_dsd_nn,
-                                               sparse_softmax)
-        return SparseAttention.ops[self.shape]
-
-    def forward(self, q, k, v, decode_step, decode_idx):
-        if self.training and self.shape not in SparseAttention.ops:
-            self.get_ops()
-
-        SparseAttention.block_layout[self.shape] = SparseAttention.block_layout[self.shape].to(q)
-        if self.causal:
-            SparseAttention.attn_mask[self.shape] = SparseAttention.attn_mask[self.shape].to(q).type_as(q)
-        attn_mask = SparseAttention.attn_mask[self.shape] if self.causal else None
-
-        old_shape = q.shape[2:-1]
-        q = q.flatten(start_dim=2, end_dim=-2)
-        k = k.flatten(start_dim=2, end_dim=-2)
-        v = v.flatten(start_dim=2, end_dim=-2)
-
-        if decode_step is not None:
-            mask = self.sparsity_config.get_non_block_layout_row(SparseAttention.block_layout[self.shape], decode_step)
-            out = scaled_dot_product_attention(q, k, v, mask=mask, training=self.training)
-        else:
-            if q.shape != k.shape or k.shape != v.shape:
-                raise Exception('SparseAttention only support self-attention')
-            sparse_dot_sdd_nt, sparse_dot_dsd_nn, sparse_softmax = self.get_ops()
-            scaling = float(q.shape[-1]) ** -0.5
-
-            attn_output_weights = sparse_dot_sdd_nt(q, k)
-            if attn_mask is not None:
-                attn_output_weights = attn_output_weights.masked_fill(attn_mask == 0,
-                                                                      float('-inf'))
-            attn_output_weights = sparse_softmax(
-                attn_output_weights,
-                scale=scaling
-            )
-
-            out = sparse_dot_dsd_nn(attn_output_weights, v)
-
-        return view_range(out, 2, 3, old_shape)
-
-
-class StridedSparsityConfig(object):
-    """
-    Strided Sparse configuration specified in https://arxiv.org/abs/1904.10509 that
-    generalizes to arbitrary dimensions
-    """
-    def __init__(self, shape, n_head, causal, block, num_local_blocks):
-        self.n_head = n_head
-        self.shape = shape
-        self.causal = causal
-        self.block = block
-        self.num_local_blocks = num_local_blocks
-
-        assert self.num_local_blocks >= 1, 'Must have at least 1 local block'
-        assert self.seq_len % self.block == 0, 'seq len must be divisible by block size'
-
-        self._block_shape = self._compute_block_shape()
-        self._block_shape_cum = self._block_shape_cum_sizes()
-
-    @property
-    def seq_len(self):
-        return np.prod(self.shape)
-
-    @property
-    def num_blocks(self):
-        return self.seq_len // self.block
-
-    def set_local_layout(self, layout):
-        num_blocks = self.num_blocks
-        for row in range(0, num_blocks):
-            end = min(row + self.num_local_blocks, num_blocks)
-            for col in range(
-                    max(0, row - self.num_local_blocks),
-                    (row + 1 if self.causal else end)):
-                layout[:, row, col] = 1
-        return layout
-
-    def set_global_layout(self, layout):
-        num_blocks = self.num_blocks
-        n_dim = len(self._block_shape)
-        for row in range(num_blocks):
-            assert self._to_flattened_idx(self._to_unflattened_idx(row)) == row
-            cur_idx = self._to_unflattened_idx(row)
-            # no strided attention over last dim
-            for d in range(n_dim - 1):
-                end = self._block_shape[d]
-                for i in range(0, (cur_idx[d] + 1 if self.causal else end)):
-                    new_idx = list(cur_idx)
-                    new_idx[d] = i
-                    new_idx = tuple(new_idx)
-
-                    col = self._to_flattened_idx(new_idx)
-                    layout[:, row, col] = 1
-
-        return layout
-
-    def make_layout(self):
-        layout = torch.zeros((self.n_head, self.num_blocks, self.num_blocks), dtype=torch.int64)
-        layout = self.set_local_layout(layout)
-        layout = self.set_global_layout(layout)
-        return layout
-
-    def make_sparse_attn_mask(self):
-        block_layout = self.make_layout()
-        assert block_layout.shape[1] == block_layout.shape[2] == self.num_blocks
-
-        num_dense_blocks = block_layout.sum().item()
-        attn_mask = torch.ones(num_dense_blocks, self.block, self.block)
-        counter = 0
-        for h in range(self.n_head):
-            for i in range(self.num_blocks):
-                for j in range(self.num_blocks):
-                    elem = block_layout[h, i, j].item()
-                    if elem == 1:
-                        assert i >= j
-                        if i == j: # need to mask within block on diagonals
-                            attn_mask[counter] = torch.tril(attn_mask[counter])
-                        counter += 1
-        assert counter == num_dense_blocks
-
-        return attn_mask.unsqueeze(0)
-
-    def get_non_block_layout_row(self, block_layout, row):
-        block_row = row // self.block
-        block_row = block_layout[:, [block_row]] # n_head x 1 x n_blocks
-        block_row = block_row.repeat_interleave(self.block, dim=-1)
-        block_row[:, :, row + 1:] = 0.
-        return block_row
-
-    ############# Helper functions ##########################
-
-    def _compute_block_shape(self):
-        n_dim = len(self.shape)
-        cum_prod = 1
-        for i in range(n_dim - 1, -1, -1):
-            cum_prod *= self.shape[i]
-            if cum_prod > self.block:
-                break
-        assert cum_prod % self.block == 0
-        new_shape = (*self.shape[:i], cum_prod // self.block)
-
-        assert np.prod(new_shape) == np.prod(self.shape) // self.block
-
-        return new_shape
-
-    def _block_shape_cum_sizes(self):
-        bs = np.flip(np.array(self._block_shape))
-        return tuple(np.flip(np.cumprod(bs)[:-1])) + (1,)
-
-    def _to_flattened_idx(self, idx):
-        assert len(idx) == len(self._block_shape), f"{len(idx)} != {len(self._block_shape)}"
-        flat_idx = 0
-        for i in range(len(self._block_shape)):
-            flat_idx += idx[i] * self._block_shape_cum[i]
-        return flat_idx
-
-    def _to_unflattened_idx(self, flat_idx):
-        assert flat_idx < np.prod(self._block_shape)
-        idx = []
-        for i in range(len(self._block_shape)):
-            idx.append(flat_idx // self._block_shape_cum[i])
-            flat_idx %= self._block_shape_cum[i]
-        return tuple(idx)
 
 
 ################ Spatiotemporal broadcasted positional embeddings ###############
@@ -508,7 +304,6 @@ class AddBroadcastPosEmbed(nn.Module):
         if decode_step is not None:
             embs = tensor_slice(embs, [0, *decode_idx, 0],
                                 [x.shape[0], *(1,) * self.n_dim, x.shape[-1]])
-
         return x + embs
 
 ################# Helper Functions ###################################
@@ -520,6 +315,7 @@ def scaled_dot_product_attention(q, k, v, mask=None, attn_dropout=0., training=T
     attn = attn / np.sqrt(q.shape[-1])
     if mask is not None:
         attn = attn.masked_fill(mask == 0, float('-inf'))
+
     if distance_mask is not None:
         if distance_mask.shape == attn.shape[-2:]:
             attn = torch.mul(distance_mask.type_as(attn),attn)
@@ -529,7 +325,7 @@ def scaled_dot_product_attention(q, k, v, mask=None, attn_dropout=0., training=T
             
             distance_mask_modified = distance_mask[0:attn.shape[-2],0:attn.shape[-1]]
             attn = torch.mul(distance_mask_modified.type_as(attn),attn)
-            
+
     attn_float = F.softmax(attn, dim=-1)
     attn = attn_float.type_as(attn) # b x n_head x d1 x ... x dn x d
     attn = F.dropout(attn, p=attn_dropout, training=training)

@@ -4,3 +4,6 @@ __pycache__/
 lightning_logs/
 datasets/
 vqvae_checkpoints/
+gpt_checkpoints/
+mask_gpt_checkpoints/
+gpt_frame_checkpoints/

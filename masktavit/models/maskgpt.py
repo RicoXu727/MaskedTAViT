@@ -20,7 +20,7 @@ from .utils import shift_dim
 
 from .vqvae import VQVAE
 
-class VideoGPT(pl.LightningModule):
+class MaskedVideoGPT(pl.LightningModule):
     def __init__(
         self,
         resolution: int = 128,
@@ -29,7 +29,7 @@ class VideoGPT(pl.LightningModule):
         heads: int = 4,
         layers: int = 8,
         dropout: float = 0.2,
-        dist_mask: bool = False,
+        dist_mask: bool = True,
         attn_type: str = 'full',
         attn_dropout: float = 0.3,
         vqvae_ckpt: str = "/home/shiwen/MaskedTAViT/vqvae_checkpoints/best_vqvae_model.ckpt",
@@ -60,7 +60,7 @@ class VideoGPT(pl.LightningModule):
         else:
             frame_cond_shape = None
 
-        # VideoGPT transformer
+        # MaskedVideoGPT transformer
         self.shape = self.vqvae.latent_shape()
 
         self.fc_in = nn.Linear(self.vqvae.embedding_dim, hidden_dim, bias=False)

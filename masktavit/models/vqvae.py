@@ -42,10 +42,11 @@ class VQVAE(pl.LightningModule):
         self.pre_vq_conv = SamePadConv3d(n_hiddens, embedding_dim, 1)
         self.post_vq_conv = SamePadConv3d(embedding_dim, n_hiddens, 1)
 
+        self.downsample = downsample
+
         self.codebook = Codebook(n_codes, embedding_dim)
         self.save_hyperparameters()
 
-    @property
     def latent_shape(self):
         input_shape = (self.sequence_length, 
                         self.resolution,
@@ -97,7 +98,7 @@ class AxialBlock(nn.Module):
         super().__init__()
         kwargs = dict(shape=(0,) * 3, dim_q=n_hiddens,
                       dim_kv=n_hiddens, n_head=n_head,
-                      n_layer=1, causal=False, attn_type='axial')
+                      n_layer=1, causal=False, attn_type='axial', dist_mask=False)
         self.attn_w = MultiHeadAttention(attn_kwargs=dict(axial_dim=-2),
                                          **kwargs)
         self.attn_h = MultiHeadAttention(attn_kwargs=dict(axial_dim=-3),

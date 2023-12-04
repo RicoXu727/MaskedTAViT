@@ -59,7 +59,9 @@ sh masktavit/data/bair/bair_dataset.sh datasets/bair
 
 
 ### Train and Test
-
+```
+./run_script.sh
+```
 ### Evaluation
 
 ## Maintainers
