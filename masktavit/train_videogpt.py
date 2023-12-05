@@ -1,21 +1,24 @@
 
-import pytorch_lightning as pl
+import argparse
+
 from pytorch_lightning.callbacks import ModelCheckpoint
 
 from models.gpt import VideoGPT, GPTLightningCLI
 from models.data import VideoData
 
-def main():
+def main(args):
 
+    ckpt_dirpath = args.ckpt_dirpath
+    
     val_checkpoint = ModelCheckpoint(
-        dirpath='gpt_checkpoints',
+        dirpath=ckpt_dirpath,
         filename = "{epoch}-{step}-{val/loss:.6f}",
-        every_n_epochs = 2,
+        every_n_epochs = 1,
         save_top_k = -1
     )
 
     best_checkpoint = ModelCheckpoint(
-        dirpath='gpt_checkpoints',
+        dirpath=ckpt_dirpath,
         filename = "best_gpt_model",
         monitor = "val/loss",
         mode = "min",
@@ -40,4 +43,7 @@ def main():
     cli.trainer.fit(cli.model, datamodule=cli.datamodule)
 
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--ckpt_dirpath', type=str, default='gpt_checkpoints', help='the path where the checkpoints to store')
+    args = parser.parse_args()
+    main(args)
