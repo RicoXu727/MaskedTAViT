@@ -133,3 +133,4 @@ class VideoGPT(pl.LightningModule):
 class GPTLightningCLI(LightningCLI):
     def add_arguments_to_parser(self, parser):
         parser.link_arguments("trainer.max_steps", "model.max_steps")
+        parser.add_argument('--ckpt_dirpath', type=str, default='gpt_checkpoints', help='the path where the checkpoints to store')

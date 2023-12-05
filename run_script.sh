@@ -24,11 +24,11 @@ rm -rf lightning_logs
 #         --ckpt_dirpath 'gpt_frame_checkpoints' \
 #         --model.n_cond_frames 2 
 
-# echo "Training the VideoGPT with the distance mask..."
-# rm -rf gpt_mask_checkpoints
-# python3 masktavit/train_videogpt.py \
-#         --ckpt_dirpath 'gpt_mask_checkpoints' \
-#         --model.dist_mask True
+echo "Training the VideoGPT with the distance mask..."
+rm -rf gpt_mask_checkpoints
+python3 masktavit/train_videogpt.py \
+        --ckpt_dirpath 'gpt_mask_checkpoints' \
+        --model.dist_mask True
 
 # echo "Training the VideoGPT with the frame condition and distance mask..."
 # rm -rf gpt_mask_frame_checkpoints
