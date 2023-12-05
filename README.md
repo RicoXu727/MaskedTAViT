@@ -4,23 +4,25 @@
 
 ## Files
 ```bash
-|-- main.py
 |-- masktavit
 |   |-- data
 |   |   |-- bair
 |   |-- models
+|   |   |-- data.py
 |   |   |-- vqvae.py
 |   |   |-- gpt.py
 |   |   |-- attention.py
+|   |   |-- resnet.py
 |   |   |-- utils.py
-|   |-- train
-|   |   |-- train_videogpt.py
-|   |   |-- train_vqvae.py
-|   |-- test
-|   |   |-- test_videogpt.py
-|   |   |-- test_vqvae.py
+|   |   |-- i3d_pretrained_400.pt
 |   |-- metric
 |   |   |-- fvd.py
+|   |   |-- convert_tf_pretrained.py
+|   |   |-- pytorch_i3d.py
+|   |-- train_vqvae.py
+|   |-- train_videogpt.py
+|   |-- compute_fvd.py
+|-- run_script.sh
 |-- requirements.txt
 |-- .gitignore
 ```
@@ -41,11 +43,6 @@ Clone the repository
 git clone https://github.com/RicoXu727/MaskedTAViT.git
 ```
 
-Install the CUDA Toolkit and cuDNN  
-```
-conda install --yes -c conda-forge cudatoolkit=11.0 cudnn
-```
-
 Install required packages
 ```
 pip install -r requirements.txt
@@ -54,11 +51,10 @@ pip install -r requirements.txt
 ### Data Download and Preprocess
 Download and Preprocess BAIR Robot data 
 ```
-sh masktavit/data/bair/bair_dataset.sh datasets/bair
+sh masktavit/data/bair/bair_dataset.sh 
 ```
 
-
-### Train and Test
+### Train 
 ```
 ./run_script.sh
 ```
