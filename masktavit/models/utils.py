@@ -101,3 +101,9 @@ def download(id, fname, root=os.path.expanduser('~/.cache/videogpt')):
     return destination
 
 
+def get_ckpt(args):
+    for i in range(len(args)):
+        if args[i] == '--ckpt_dirpath' and i+1 < len(args):
+            return args[i+1]
+    return None
+
