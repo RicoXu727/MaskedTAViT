@@ -227,7 +227,8 @@ class FullAttention(nn.Module):
                     self.distance[i][j] = sum(abs(idxs[i][k]-idxs[j][k]) for k in range(0,len(shape))) #l1 distance
                     self.distance[j][i] = self.distance[i][j]
             max_distance = self.distance[0][seq_len-1]
-            self.distance_mask = torch.exp(-self.distance/max_distance)
+            
+            self.distance_mask = nn.Parameter(torch.exp(-self.distance/max_distance),requires_grad=True)
 
 
     def forward(self, q, k, v, decode_step, decode_idx):
