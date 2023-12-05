@@ -1,6 +1,7 @@
 '''
 Code referenced from https://github.com/wilson1yan/VideoGPT
 '''
+
 # Shifts src_tf dim to dest dim
 # i.e. shift_dim(x, 1, -1) would be (b, c, t, h, w) -> (b, t, h, w, c)
 def shift_dim(x, src_dim=-1, dest_dim=-1, make_contiguous=True):
@@ -86,5 +87,17 @@ def save_video_grid(video, fname, nrow=None):
 
     skvideo.io.vwrite(fname, video_grid, inputdict={'-r': '5'})
     print('saved videos to', fname)
+
+import os
+import gdown
+def download(id, fname, root=os.path.expanduser('~/.cache/videogpt')):
+    os.makedirs(root, exist_ok=True)
+    destination = os.path.join(root, fname)
+
+    if os.path.exists(destination):
+        return destination
+
+    gdown.download(id=id, output=destination, quiet=False)
+    return destination
 
 
