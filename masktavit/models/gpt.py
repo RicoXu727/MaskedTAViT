@@ -23,7 +23,7 @@ from .vqvae import VQVAE
 class VideoGPT(pl.LightningModule):
     def __init__(
         self,
-        resolution: int = 128,
+        resolution: int = 64,
         n_cond_frames: int = 0,
         hidden_dim: int = 576,
         heads: int = 4,
