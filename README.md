@@ -1,7 +1,5 @@
 # MaskedTAViT
 
-## Introduction
-
 ## Files
 ```bash
 |-- masktavit
