@@ -50,8 +50,8 @@ class VideoGPT(pl.LightningModule):
         self.use_frame_cond = n_cond_frames > 0
         if self.use_frame_cond:
             frame_cond_shape = (n_cond_frames,
-                                resolution // 8,
-                                resolution // 8,
+                                resolution // 4,
+                                resolution // 4,
                                 240)
             self.resnet = resnet34(1, (1, 4, 4), resnet_dim=240)
             self.cond_pos_embd = AddBroadcastPosEmbed(
