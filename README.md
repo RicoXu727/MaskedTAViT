@@ -7,6 +7,9 @@
 |-- masktavit
 |   |-- data
 |   |   |-- bair
+|   |   |   |-- bair_dataset.sh
+|   |   |   |-- bair_extract_images.py
+|   |   |   |-- bair_image_to_hdf5.py
 |   |-- models
 |   |   |-- data.py
 |   |   |-- vqvae.py
