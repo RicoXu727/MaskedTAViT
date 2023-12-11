@@ -55,11 +55,10 @@ Download and Preprocess BAIR Robot data
 sh masktavit/data/bair/bair_dataset.sh 
 ```
 
-### Train 
+### Train, Test, and Evaluation
 ```
 ./run_script.sh
 ```
-### Evaluation
 
 ## Maintainers
 ```
