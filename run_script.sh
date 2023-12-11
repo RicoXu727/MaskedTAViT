@@ -24,17 +24,20 @@ rm -rf lightning_logs
 #         --ckpt_dirpath 'gpt_frame_checkpoints' \
 #         --model.n_cond_frames 2 
 
-echo "Training the VideoGPT with the distance mask..."
-rm -rf gpt_mask_checkpoints
-python3 masktavit/train_videogpt.py \
-        --ckpt_dirpath 'gpt_mask_checkpoints' \
-        --model.dist_mask True
-
-# echo "Training the VideoGPT with the frame condition and distance mask..."
-# rm -rf gpt_mask_frame_checkpoints
+# echo "Training the VideoGPT with the distance mask..."
+# rm -rf gpt_mask_checkpoints
 # python3 masktavit/train_videogpt.py \
-#         --ckpt_dirpath 'gpt_mask_frame_checkpoints' \
-#         --model.n_cond_frames 2 
+#         --ckpt_dirpath 'gpt_mask_checkpoints' \
 #         --model.dist_mask True
 
+echo "Training the VideoGPT with the frame condition and distance mask..."
+rm -rf gpt_mask_frame_checkpoints
+python3 masktavit/train_videogpt.py \
+        --ckpt_dirpath 'gpt_mask_frame_checkpoints' \
+        --model.n_cond_frames 2 
+        --model.dist_mask True
 
+echo "Evaluation..."
+python3 masktavit/compute_fvd.py \
+        --path 'datasets/bair.hdf5' \
+        --ckpt 'gpt_mask_frame_checkpoints/best_gpt_model.ckpt'
