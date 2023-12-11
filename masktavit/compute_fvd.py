@@ -1,4 +1,3 @@
-
 import argparse
 
 from tqdm import tqdm
@@ -14,7 +13,7 @@ from models.gpt import VideoGPT
 from models.data import VideoData
 from models.utils import download
 
-MAX_BATCH = 32
+MAX_BATCH = 16
 
 def main(args):
     '''
@@ -25,7 +24,7 @@ def main(args):
     ckpt = args.ckpt
     data_path = args.path
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda:0")
     torch.cuda.set_device(device)
     torch.set_grad_enabled(False)
 
@@ -43,32 +42,20 @@ def main(args):
 
     #################### Compute FVD ###############################
     fvds = []
-    fvds_star = []
 
     pbar = tqdm(total=n_trials)
     for _ in range(n_trials):
-        fvd, fvd_star = eval_fvd(i3d, gpt, loader, device)
+        fvd = eval_fvd(i3d, gpt, loader, device)
         fvds.append(fvd)
-        fvds_star.append(fvd_star)
 
         pbar.update(1)
         fvd_mean = np.mean(fvds)
         fvd_std = np.std(fvds)
 
-        fvd_star_mean = np.mean(fvds_star)
-        fvd_star_std = np.std(fvds_star)
-
-        pbar.set_description(f"FVD {fvd_mean:.2f} +/- {fvd_std:.2f}, FVD* {fvd_star_mean:.2f} +/0 {fvd_star_std:.2f}")
+        pbar.set_description(f"FVD {fvd_mean:.2f} +/- {fvd_std:.2f}")
 
     pbar.close()
-    print(f"Final FVD {fvd_mean:.2f} +/- {fvd_std:.2f}, FVD* {fvd_star_mean:.2f} +/- {fvd_star_std:.2f}")
-
-
-def all_gather(tensor):
-    rank, size = dist.get_rank(), dist.get_world_size()
-    tensor_list = [torch.zeros_like(tensor) for _ in range(size)]
-    dist.all_gather(tensor_list, tensor)
-    return torch.cat(tensor_list)
+    print(f"Final FVD {fvd_mean:.2f} +/- {fvd_std:.2f}")
 
 
 def eval_fvd(i3d, videogpt, loader, device):
@@ -89,11 +76,8 @@ def eval_fvd(i3d, videogpt, loader, device):
     real = real.permute(0, 2, 3, 4, 1).cpu().numpy() # BCTHW -> BTHWC
     real = (real * 255).astype('uint8')
     real_embeddings = get_fvd_logits(real, i3d=i3d, device=device)
-
-    fake_embeddings = all_gather(fake_embeddings)
-    real_embeddings = all_gather(real_embeddings)
-
-    assert fake_embeddings.shape[0] == real_embeddings.shape[0] == 256
+    
+    assert fake_embeddings.shape[0] == real_embeddings.shape[0] 
 
     fvd = frechet_distance(fake_embeddings.clone(), real_embeddings)
     return fvd.item()
