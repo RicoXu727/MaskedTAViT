@@ -52,12 +52,12 @@ pip install -r requirements.txt
 ### Data Download and Preprocess
 Download and Preprocess BAIR Robot data 
 ```
-sh masktavit/data/bair/bair_dataset.sh 
+bash masktavit/data/bair/bair_dataset.sh 
 ```
 
 ### Train, Test, and Evaluation
 ```
-./run_script.sh
+bash run_script.sh
 ```
 
 ## Maintainers
