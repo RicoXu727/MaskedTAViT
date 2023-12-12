@@ -1,5 +1,5 @@
 # MaskedTAViT
-We carried out topological masking mechanisms ([Choromanski et al., 2022]) for VideoGPT model ([Yan et al., 2021]) for Video predicton tasks.
+We carried out topological masking mechanisms ([Choromanski et al., 2022]) on VideoGPT model ([Yan et al., 2021]) for Video predicton tasks.
 ## Files
 ```bash
 |-- masktavit
